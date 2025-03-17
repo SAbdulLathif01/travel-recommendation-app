@@ -57,10 +57,9 @@ AI Chatbot	transformers, torch (Hugging Face blenderbot-400M-distill)
 Voice Assistant	SpeechRecognition (STT), pyttsx3 (TTS)
 Database (Authentication)	MongoDB (pymongo)
 
-📂 Folder Structure
-sql
-Copy
-Edit
+## 📂 Folder Structure
+
+```
 📁 travel-assistant/
 │-- 📄 app.py                 # Main Streamlit App
 │-- 📁 pages/
@@ -69,6 +68,7 @@ Edit
 │-- 📄 flights.py             # Flight Search API Logic
 │-- 📄 requirements.txt       # Python dependencies
 │-- 📄 README.md              # Documentation
+```
 
 
 📌 Example of Installation Commands in README.md
