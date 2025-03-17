@@ -56,3 +56,53 @@ Weather API	requests (OpenWeather API)
 AI Chatbot	transformers, torch (Hugging Face blenderbot-400M-distill)
 Voice Assistant	SpeechRecognition (STT), pyttsx3 (TTS)
 Database (Authentication)	MongoDB (pymongo)
+
+
+
+
+📌 Example of Installation Commands in README.md
+markdown
+Copy
+Edit
+## 📦 Installation Guide  
+
+### 1️⃣ Clone the Repository  
+```sh
+git clone https://github.com/yourusername/travel-assistant.git
+cd travel-assistant
+2️⃣ Create a Virtual Environment
+🔹 Windows
+sh
+Copy
+Edit
+python -m venv venv
+venv\Scripts\activate
+🔹 macOS / Linux
+sh
+Copy
+Edit
+python3 -m venv venv
+source venv/bin/activate
+3️⃣ Install Dependencies
+sh
+Copy
+Edit
+pip install -r requirements.txt
+4️⃣ Run the Application
+sh
+Copy
+Edit
+streamlit run app.py
+markdown
+Copy
+Edit
+
+---
+
+### 🔹 Explanation:
+1. **Use ` ```sh `** before the code block to specify it's a shell script.  
+2. **Use triple backticks (` ``` `)** to start and end a code block.  
+3. **Use inline backticks (`command`)** for short one-line commands within normal text.  
+4. **Separate commands into steps (Clone, Virtual Env, Install, Run)** for clarity.  
+
+✅ This formatting ensures that commands are **easily copy-pasteable** for users. 🚀
