@@ -1,200 +1,195 @@
-import os
-import requests
+import streamlit as st
+st.set_page_config(page_title="Travel Assistant", page_icon="✈️", layout="wide")
 import pandas as pd
-from flask import Flask, request, jsonify, render_template_string
-from langchain_community.vectorstores import FAISS
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from langchain_community.llms import HuggingFaceHub
-from langchain.chains import RetrievalQA
-from datasets import load_dataset
+import requests
+from pymongo import MongoClient
+import bcrypt
 from sklearn.feature_extraction.text import TfidfVectorizer
-from sklearn.metrics.pairwise import linear_kernel
+from sklearn.metrics.pairwise import cosine_similarity
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+from flights import get_flight_prices 
+from chatbot import ask_chatbot 
+from chatbot import ask_chatbot, recognize_speech, text_to_speech
 
-###############################################################################
-# API Keys & Configurations
-###############################################################################
-WEATHER_API_KEY = "bf1c55bcdac77159cd0d3062f2b90613"
-FLIGHT_API_KEY = "b07898df29ca04fb0df91f9d64765a2f"
-UNSPLASH_API_KEY = "Wb2t4pUrurt5nqyv6OnDz3zfEztDKzirlbThtaRa9b8"
-HUGGINGFACEHUB_API_TOKEN = os.getenv("HUGGINGFACEHUB_API_TOKEN", "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")
 
-###############################################################################
-# Load Dataset for Hotel Recommendations
-###############################################################################
-file_path = "Hotel_Reviews.csv"  # Ensure this file is in the same directory
-df = pd.read_csv(file_path)
+# 🔹 API Keys
+FLIGHT_API_KEY = "ed0c810a50msh1e3b82d8580b49dp15bd57jsnf558c7d483ff"
+WEATHER_API_KEY = "dc8df4de7be0108b91ae7a6769ca8713"
 
-# Rename columns for consistency
-df.rename(columns={"Hotel_Name": "Hotel", "Positive_Review": "Review", "Reviewer_Score": "Rating"}, inplace=True)
+# 🔹 Path to Dataset
+dataset_path = r"C:\Users\lathif\Downloads\archive (21)\Hotel_Reviews.csv"
 
-# Extract Country from "Hotel_Address"
-df["Country"] = df["Hotel_Address"].apply(lambda x: x.split()[-1] if isinstance(x, str) else "N/A")
+# 🔹 MongoDB Connection
+client = MongoClient("mongodb://localhost:27017/")
+db = client["travel_db"]
+users_collection = db["users"]
 
-# Derive Theme based on "Tags"
-def derive_theme(tags):
-    tags = str(tags).lower()
-    if "luxury" in tags:
-        return "luxury"
-    elif "budget" in tags or "cheap" in tags:
-        return "budget"
-    elif "adventure" in tags or "explore" in tags:
-        return "adventure"
-    else:
-        return "general"
-df["Theme"] = df["Tags"].apply(derive_theme)
+# 🔹 Load Dataset
+@st.cache_data
+def load_data():
+    df = pd.read_csv(dataset_path).sample(n=20000, random_state=42)
+    text_cols = ["Hotel_Name", "Positive_Review", "Negative_Review", "Hotel_Address"]
+    numeric_cols = ["Reviewer_Score", "Review_Total_Positive_Word_Counts", "Review_Total_Negative_Word_Counts"]
 
-# Sample 5000 rows for performance
-df = df.sample(n=5000, random_state=42)
-df.dropna(subset=["Review", "Rating", "Country"], inplace=True)
-df.reset_index(drop=True, inplace=True)
-df["rec_id"] = df.index
+    for col in text_cols:
+        df[col] = df[col].fillna("Unknown")
+    for col in numeric_cols:
+        df[col] = df[col].fillna(0)
 
-# Generate price estimates based on rating
-df["Price"] = df["Rating"].apply(lambda r: f"${100 + int(r) * 10} (Approx)")
+    return df
 
-# Compute TF-IDF similarity for reviews
-tfidf = TfidfVectorizer(stop_words="english", max_features=5000)
-tfidf_matrix = tfidf.fit_transform(df["Review"])
-cosine_sim = linear_kernel(tfidf_matrix, tfidf_matrix)
+df = load_data()
 
-###############################################################################
-# API Functions: Weather, Flight Prices, Hotel Images
-###############################################################################
-def get_weather(city):
-    url = f"https://api.openweathermap.org/data/2.5/weather?q={city}&appid={WEATHER_API_KEY}&units=metric"
-    try:
-        r = requests.get(url)
-        data = r.json()
-        return f"{data['main']['temp']}°C, {data['weather'][0]['description']}" if "main" in data else "N/A"
-    except Exception:
-        return "N/A"
+# 🔹 Sentiment Analysis
+@st.cache_data
+def compute_sentiment(df):
+    analyzer = SentimentIntensityAnalyzer()
+    df["Positive_Sentiment"] = df["Positive_Review"].apply(lambda x: analyzer.polarity_scores(x)["compound"])
+    df["Negative_Sentiment"] = df["Negative_Review"].apply(lambda x: analyzer.polarity_scores(x)["compound"])
+    return df
 
-def get_flight_prices(origin, destination, date):
-    url = f"https://api.flightapi.io/onewaytrip/{FLIGHT_API_KEY}/{origin}/{destination}/{date}/1/0/0/Economy/USD"
-    try:
-        r = requests.get(url)
-        data = r.json()
-        return f"${data['data'][0]['price']}" if "data" in data else "N/A"
-    except Exception:
-        return "N/A"
+df = compute_sentiment(df)
 
-def get_hotel_image(hotel_name):
-    url = f"https://api.unsplash.com/search/photos?query={hotel_name}&client_id={UNSPLASH_API_KEY}&per_page=1"
-    try:
-        r = requests.get(url)
-        data = r.json()
-        return data["results"][0]["urls"]["small"] if "results" in data and len(data["results"]) > 0 else None
-    except Exception:
+# 🔹 User Authentication
+def hash_password(password):
+    return bcrypt.hashpw(password.encode(), bcrypt.gensalt())
+
+def check_password(password, hashed):
+    return bcrypt.checkpw(password.encode(), hashed)
+
+def register_user(username, password):
+    if users_collection.find_one({"username": username}):
+        return False
+    hashed_pw = hash_password(password)
+    users_collection.insert_one({"username": username, "password": hashed_pw})
+    return True
+
+def authenticate_user(username, password):
+    user = users_collection.find_one({"username": username})
+    return user and check_password(password, user["password"])
+
+# 🔹 Improved Recommendation System
+@st.cache_data
+def train_vectorizer():
+    vectorizer = TfidfVectorizer(stop_words='english')
+    df["combined_features"] = (
+        df["Hotel_Name"] + " " +
+        df["Positive_Review"] + " " +
+        df["Negative_Review"] + " " +
+        df["Hotel_Address"] + " " +
+        df["Reviewer_Score"].astype(str)
+    )
+    tfidf_matrix = vectorizer.fit_transform(df["combined_features"])
+    return vectorizer, tfidf_matrix
+
+vectorizer, tfidf_matrix = train_vectorizer()
+
+def recommend_hotels(city, theme):
+    city_data = df[df["Hotel_Address"].str.contains(city, case=False, na=False)].copy()
+    
+    if city_data.empty:
+        st.error(f"❌ No data found for city: {city}")
         return None
 
-###############################################################################
-# Hotel Recommendation Function (Filter by Country & Theme)
-###############################################################################
-def get_best_hotels(country, theme, top_n=5):
-    filtered_df = df[(df["Country"].str.contains(country, case=False, na=False)) & (df["Theme"] == theme)]
-    if filtered_df.empty:
-        filtered_df = df[df["Country"].str.contains(country, case=False, na=False)]
-    filtered_df = filtered_df.sort_values(by="Rating", ascending=False).head(top_n)
+    theme_vector = vectorizer.transform([theme])
+    similarity_scores = cosine_similarity(theme_vector, tfidf_matrix[df.index.isin(city_data.index)]).flatten()
+
+    city_data["Similarity_Score"] = similarity_scores
+    city_data["Sentiment_Score"] = city_data["Positive_Sentiment"] - abs(city_data["Negative_Sentiment"])
+    city_data["Final_Score"] = city_data["Similarity_Score"] + (city_data["Sentiment_Score"] * 0.5)
+
+    recommended_hotels = city_data.nlargest(10, "Final_Score")[["Hotel_Name", "Reviewer_Score", "Hotel_Address"]].drop_duplicates()
+
+    if recommended_hotels.empty:
+        st.warning("⚠️ No recommendations available for this theme!")
+        return None
+
+    return recommended_hotels
+
+# 🔹 API Integration
+def get_weather(city):
+    url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={WEATHER_API_KEY}&units=metric"
+    response = requests.get(url)
+    return response.json() if response.status_code == 200 else None
+
+
+st.sidebar.image("https://cdn-icons-png.flaticon.com/512/1146/1146890.png", width=100)
+st.sidebar.title("🌍 Travel Assistant")
+menu = st.sidebar.radio("Navigation", ["Login", "Register", "Dashboard","AI Chatbot"], key="navigation_radio")
+
+if menu == "AI Chatbot":
+    st.switch_page("pages/Chatbot.py")
+
+# 🔹 Login Page
+if menu == "Login":
+    st.title("🔐 Login to Travel Assistant")
+    username = st.text_input("Username")
+    password = st.text_input("Password", type="password")
     
-    recommendations = []
-    for _, row in filtered_df.iterrows():
-        recommendations.append({
-            "Hotel": row["Hotel"],
-            "Rating": float(row["Rating"]),
-            "Review": row["Review"],
-            "Price": row["Price"],
-            "Country": row["Country"],
-            "Theme": row["Theme"],
-            "Image": get_hotel_image(row["Hotel"]),
-            "Weather": get_weather(row["Country"]),
-            "Flight": get_flight_prices("NYC", row["Country"], "2025-12-01")
-        })
-    return recommendations
+    if st.button("Login"):
+        if authenticate_user(username, password):
+            st.session_state["authenticated"] = True
+            st.session_state["username"] = username
+            st.success("✅ Login successful!")
+            st.rerun()
+        else:
+            st.error("❌ Invalid Credentials")
 
-###############################################################################
-# Flask App Setup
-###############################################################################
-app = Flask(_name_)
+# 🔹 Register Page
+elif menu == "Register":
+    st.title("📝 Register a New Account")
+    new_username = st.text_input("Choose a Username")
+    new_password = st.text_input("Choose a Password", type="password")
+    
+    if st.button("Create Account"):
+        if register_user(new_username, new_password):
+            st.success("✅ Account Created! Please Login.")
+        else:
+            st.error("❌ Username already exists!")
 
-###############################################################################
-# RAG Chatbot Setup
-###############################################################################
-wikipedia_data = load_dataset("wikipedia", "20220301.simple", split="train")
-wiki_subset = wikipedia_data.select(range(1000))
-wiki_docs = [entry["text"][:500] for entry in wiki_subset]
+# 🔹 Dashboard Page (Contains Flight Search)
+elif menu == "Dashboard":
+    if "authenticated" in st.session_state:
+        st.title("🏠 Travel Assistant Dashboard")
 
-embeddings_model = HuggingFaceEmbeddings(model_name="sentence-transformers/all-MiniLM-L6-v2")
-db_faiss = FAISS.from_texts(texts=wiki_docs, embedding=embeddings_model)
-retriever = db_faiss.as_retriever(search_type="similarity", search_kwargs={"k": 3})
+        col1, col2 = st.columns(2)
+        with col1:
+            city = st.selectbox("🌆 Select a City", df["Hotel_Address"].str.split().str[-1].unique())
+        with col2:
+            theme = st.selectbox("🎭 Select a Theme", ["Adventure", "Food", "Luxury", "Budget"])
 
-llm = HuggingFaceHub(repo_id="tiiuae/falcon-7b-instruct", huggingfacehub_api_token=HUGGINGFACEHUB_API_TOKEN)
-qa_chain = RetrievalQA.from_chain_type(llm=llm, chain_type="stuff", retriever=retriever)
+        if st.button("🔎 Get Recommendations"):
+            recommendations = recommend_hotels(city, theme)
+            if recommendations is not None:
+                st.success("✅ Here are the best hotels for your selection!")
+                st.dataframe(recommendations)
 
-###############################################################################
-# API Endpoints
-###############################################################################
-@app.route("/recommend", methods=["POST"])
-def recommend_endpoint():
-    data = request.json or {}
-    country = data.get("country", "United Kingdom")
-    theme = data.get("theme", "luxury")
-    results = get_best_hotels(country, theme, top_n=5)
-    return jsonify(results)
+        if st.button("☁️ Get Weather"):
+            weather_data = get_weather(city)
+            if weather_data:
+                st.success(f"✅ Weather in {city}")
+                st.write(weather_data)
 
-@app.route("/chat", methods=["POST"])
-def chat_endpoint():
-    data = request.json or {}
-    user_query = data.get("query", "")
-    if not user_query:
-        return jsonify({"answer": "No query provided."})
-    response = qa_chain.invoke(user_query)
-    return jsonify({"answer": str(response)})
+        # 🔹 Flight Search Section (ONLY IN DASHBOARD)
+        st.subheader("✈️ Check Flight Prices")
+        origin = st.text_input("📍 Enter Origin Airport Code (e.g., JFK)")
+        origin_id = st.text_input("Enter Origin ID", "27537542")
+        destination = st.text_input("🏙️ Enter Destination Airport Code (e.g., LAX)")
+        destination_id = st.text_input("Enter Destination ID", "95673827")
+        date = st.date_input("📅 Select Departure Date").strftime("%Y-%m-%d")
 
-###############################################################################
-# UI Endpoint
-###############################################################################
-@app.route("/")
-def home():
-    html_content = """
-    <!DOCTYPE html>
-    <html lang='en'>
-    <head>
-        <meta charset='UTF-8'>
-        <title>Travel Recommendation App</title>
-    </head>
-    <body>
-        <h1>Search Hotels</h1>
-        <label>Country:</label>
-        <input type='text' id='country' value='United Kingdom'><br>
-        <label>Theme:</label>
-        <select id='theme'>
-            <option value='luxury'>Luxury</option>
-            <option value='budget'>Budget</option>
-            <option value='adventure'>Adventure</option>
-            <option value='general'>General</option>
-        </select>
-        <button onclick='fetchRecommendations()'>Search</button>
-        <div id='recommendations'></div>
+        if st.button("🛫 Find Flights"):
+            flights = get_flight_prices(origin, origin_id, destination, destination_id, date)
 
-        <h2>Chatbot</h2>
-        <input type='text' id='query' placeholder='Ask something...'>
-        <button onclick='fetchChat()'>Ask</button>
-        <pre id='response'></pre>
+            if flights:
+                if "error" in flights:
+                    st.error(flights["error"])
+                else:
+                    st.write("### Available Flights:")
+                    for flight in flights:
+                        st.write(f"🛫 **Airline:** {flight['Airline']}")
+                        st.write(f"⏰ **Departure:** {flight['Departure Time']}")
+                        st.write(f"💰 **Price:** {flight['Price']}")
+                        st.write("---")
 
-        <script>
-        async function fetchRecommendations() {
-            let country = document.getElementById('country').value;
-            let theme = document.getElementById('theme').value;
-            let res = await fetch('/recommend', { method: 'POST', headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify({ country, theme })});
-            let data = await res.json();
-            document.getElementById("recommendations").innerText = JSON.stringify(data, null, 2);
-        }
-        </script>
-    </body>
-    </html>
-    """
-    return render_template_string(html_content)
-
-if _name_ == '_main_':
-    app.run(debug=True)
+            
