@@ -16,8 +16,15 @@ from chatbot import ask_chatbot, recognize_speech, text_to_speech
 FLIGHT_API_KEY = "ed0c810a50msh1e3b82d8580b49dp15bd57jsnf558c7d483ff"
 WEATHER_API_KEY = "dc8df4de7be0108b91ae7a6769ca8713"
 
+# Raw GitHub URL for the CSV file
+url = 'https://raw.githubusercontent.com/SAbdulLathif01/travel-recommendation-app/main/Hotel_Reviews.csv'
+
 # 🔹 Path to Dataset
-dataset_path = r"C:\Users\lathif\Downloads\archive (21)\Hotel_Reviews.csv"
+#dataset_path=pd.read_csv('C:\\Users\\lathif\\Downloads\\archive (21)\\Hotel_Reviews.csv')
+# Load the CSV directly from GitHub
+dataset_path = pd.read_csv(url)
+
+
 
 # 🔹 MongoDB Connection
 client = MongoClient("mongodb://localhost:27017/")
