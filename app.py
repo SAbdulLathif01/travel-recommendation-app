@@ -17,12 +17,12 @@ FLIGHT_API_KEY = "ed0c810a50msh1e3b82d8580b49dp15bd57jsnf558c7d483ff"
 WEATHER_API_KEY = "dc8df4de7be0108b91ae7a6769ca8713"
 
 # Raw GitHub URL for the CSV file
-url = 'https://drive.google.com/uc?export=download&id=1DvJXDJkBvJKKIYCzXgUzj2rTelhnCgaw'
+#url = 'https://drive.google.com/uc?export=download&id=1DvJXDJkBvJKKIYCzXgUzj2rTelhnCgaw'
 
 
 # 🔹 Path to Dataset
-#dataset_path=pd.read_csv('C:\\Users\\lathif\\Downloads\\archive (21)\\Hotel_Reviews.csv')
-# Load the CSV directly from GitHub
+dataset_path=pd.read_csv('C:\\Users\\lathif\\Downloads\\archive (21)\\Hotel_Reviews.csv')
+#Load the CSV directly from GitHub
 dataset_path = pd.read_csv(url)
 
 
