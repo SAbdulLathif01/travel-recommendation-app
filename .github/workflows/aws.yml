@@ -36,8 +36,8 @@ env:
   ECR_REPOSITORY: travel-assistant-ecr
   ECS_SERVICE: travel-app-service
   ECS_CLUSTER: Devclusters
-  ECS_TASK_DEFINITION: .aws/task-definition.json  # <-- ensure this path is correct
-  CONTAINER_NAME: travel-assistant  # <-- replace if your container name differs
+  ECS_TASK_DEFINITION: .aws/task-definition.json
+  CONTAINER_NAME: travel-assistant
 
 permissions:
   contents: read
@@ -79,7 +79,7 @@ jobs:
       with:
         task-definition: ${{ env.ECS_TASK_DEFINITION }}
         container-name: ${{ env.CONTAINER_NAME }}
-        image: ${{ steps.build-image.outputs.image }}
+        image: ${{ env.image }}
 
     - name: Deploy Amazon ECS task definition
       uses: aws-actions/amazon-ecs-deploy-task-definition@v1
