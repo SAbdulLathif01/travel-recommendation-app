@@ -16,16 +16,9 @@ from chatbot import ask_chatbot, recognize_speech, text_to_speech
 FLIGHT_API_KEY = "ed0c810a50msh1e3b82d8580b49dp15bd57jsnf558c7d483ff"
 WEATHER_API_KEY = "dc8df4de7be0108b91ae7a6769ca8713"
 
-# Raw GitHub URL for the CSV file
-#url = 'https://drive.google.com/uc?export=download&id=1DvJXDJkBvJKKIYCzXgUzj2rTelhnCgaw'
-
 
 # 🔹 Path to Dataset
-dataset_path=pd.read_csv('C:\\Users\\lathif\\Downloads\\archive (21)\\Hotel_Reviews.csv')
-#Load the CSV directly from GitHub
-dataset_path = pd.read_csv(url)
-
-
+dataset_path = r"C:\Users\lathif\Downloads\archive (21)\Hotel_Reviews.csv"
 
 # 🔹 MongoDB Connection
 client = MongoClient("mongodb://localhost:27017/")
@@ -92,6 +85,67 @@ def train_vectorizer():
 
 vectorizer, tfidf_matrix = train_vectorizer()
 
+
+
+def get_hotel_image(hotel_name):
+    import hashlib
+    import random
+
+    # Sample keywords that reflect hotel vibes
+    sample_keywords = [
+        "luxury-hotel", "beach-resort", "urban-hotel", "city-view-room",
+        "suite-interior", "tropical-hotel", "europe-hotel",
+        "skyline-room", "mountain-resort", "vintage-hotel"
+    ]
+
+    # Create a consistent index using a hash of the hotel name
+    idx = int(hashlib.sha256(hotel_name.encode('utf-8')).hexdigest(), 16) % len(sample_keywords)
+    keyword = sample_keywords[idx]
+
+    # Use picsum.photos with seed for consistent but different images
+    seed = hashlib.md5(hotel_name.encode()).hexdigest()
+    return f"https://picsum.photos/seed/{seed}/600/400"
+
+
+import hashlib
+import streamlit as st
+def get_flight_image(airline_name):
+    airline_images = {
+        "hawaiian airlines": "https://upload.wikimedia.org/wikipedia/commons/6/6c/Hawaiian_Airlines_A330_N380HA.jpg",
+        "alaska airlines": "https://upload.wikimedia.org/wikipedia/commons/6/6e/Alaska_Airlines_Boeing_737-800.jpg",
+        "jetblue": "https://upload.wikimedia.org/wikipedia/commons/1/1c/JetBlue_Airways_Airbus_A320_N595JB.jpg",
+        "delta air lines": "https://upload.wikimedia.org/wikipedia/commons/f/fb/Delta_Air_Lines_Boeing_757_N67171.jpg",
+        "united airlines": "https://upload.wikimedia.org/wikipedia/commons/6/6f/United_Airlines_Boeing_787.jpg",
+        "american airlines": "https://upload.wikimedia.org/wikipedia/commons/2/24/American_Airlines_Boeing_737-800_N973AN.jpg",
+        "southwest airlines": "https://upload.wikimedia.org/wikipedia/commons/7/7d/Southwest_Airlines_Boeing_737.jpg",
+        "air canada": "https://upload.wikimedia.org/wikipedia/commons/6/6a/Air_Canada_Boeing_787.jpg",
+        "british airways": "https://upload.wikimedia.org/wikipedia/commons/2/2e/British_Airways_A380_G-XLEA.jpg",
+        "emirates": "https://upload.wikimedia.org/wikipedia/commons/0/07/Emirates_A380.jpg"
+    }
+
+    normalized_name = airline_name.strip().lower()
+    return airline_images.get(normalized_name, "https://upload.wikimedia.org/wikipedia/commons/e/e0/Airplane_icon.png")
+
+
+
+
+def display_flights(flights):
+    for flight in flights:
+        airline_name = flight['Airline']
+        img_url = get_flight_image(airline_name)
+
+        st.image(img_url, width=600, caption=f"🛫 {airline_name}")
+
+        st.markdown(
+            f"""
+            <div style="padding:12px; background-color:#111; border-radius:10px; margin-top:-10px; color:#eee;">
+                <p>🕒 <strong>Departure:</strong> {flight['Departure Time']}</p>
+                <p>💸 <strong>Price:</strong> {flight['Price']}</p>
+            </div>
+            """, unsafe_allow_html=True
+        )
+
+
 def recommend_hotels(city, theme):
     city_data = df[df["Hotel_Address"].str.contains(city, case=False, na=False)].copy()
     
@@ -118,7 +172,27 @@ def recommend_hotels(city, theme):
 def get_weather(city):
     url = f"http://api.openweathermap.org/data/2.5/weather?q={city}&appid={WEATHER_API_KEY}&units=metric"
     response = requests.get(url)
-    return response.json() if response.status_code == 200 else None
+
+    if response.status_code == 200:
+        data = response.json()
+        weather_desc = data["weather"][0]["description"].title()
+        temp = data["main"]["temp"]
+        feels_like = data["main"]["feels_like"]
+        humidity = data["main"]["humidity"]
+        wind_speed = data["wind"]["speed"]
+
+        weather_report = (
+            f"🌤️ **Weather in {city}**\n\n"
+            f"**Condition:** {weather_desc}\n"
+            f"**Temperature:** {temp}°C (feels like {feels_like}°C)\n"
+            f"**Humidity:** {humidity}%\n"
+            f"**Wind Speed:** {wind_speed} m/s"
+        )
+
+        return weather_report
+    else:
+        return "❌ Couldn't fetch weather data. Please check the city name."
+
 
 
 st.sidebar.image("https://cdn-icons-png.flaticon.com/512/1146/1146890.png", width=100)
@@ -165,39 +239,67 @@ elif menu == "Dashboard":
             city = st.selectbox("🌆 Select a City", df["Hotel_Address"].str.split().str[-1].unique())
         with col2:
             theme = st.selectbox("🎭 Select a Theme", ["Adventure", "Food", "Luxury", "Budget"])
+            
+    if "show_flights" not in st.session_state:
+        st.session_state["show_flights"] = False
 
-        if st.button("🔎 Get Recommendations"):
-            recommendations = recommend_hotels(city, theme)
-            if recommendations is not None:
-                st.success("✅ Here are the best hotels for your selection!")
-                st.dataframe(recommendations)
+# Button 1: Recommendations
+    if st.button("🔎 Get Recommendations"):
+        recommendations = recommend_hotels(city, theme)
+        if recommendations is not None:
+            st.success("✅ Here are the best hotels for your selection!")
+            for idx, row in recommendations.iterrows():
+                col1, col2 = st.columns([1, 2])
+                with col1:
+                    image_url = get_hotel_image(row['Hotel_Name'])
+                    st.image(image_url, use_container_width=True)
+                    with col2:
+                        st.markdown(
+                            f"""<div style="padding: 0.5rem; background-color: #1c1c1c; border-radius: 10px;">
+                            <h4 style="color:#fafafa;">🏨 {row['Hotel_Name']}</h4>
+                            <p style="color:#cccccc;">
+                            📍 <strong>Location:</strong> {row['Hotel_Address']}<br>
+                            ⭐ <strong>Reviewer Score:</strong> {row['Reviewer_Score']}
+                            </p></div>""",
+                            unsafe_allow_html=True
+                            )
 
-        if st.button("☁️ Get Weather"):
-            weather_data = get_weather(city)
-            if weather_data:
-                st.success(f"✅ Weather in {city}")
-                st.write(weather_data)
-
-        # 🔹 Flight Search Section (ONLY IN DASHBOARD)
+# Button 2: Weather
+    if st.button("☁️ Get Weather"):
+        weather_data = get_weather(city)
+        if weather_data:
+            st.success(f"✅ Weather in {city}")
+            st.markdown(
+                f"""<div style="padding: 1rem; background-color: #1e1e2f; border-radius: 10px; color: #f5f5f5;">
+                <h4 style="margin-bottom: 0.8rem;">🌤️ <u>Current Weather Summary</u></h4>
+                <pre style="white-space: pre-wrap;">{weather_data}</pre></div>""",
+                unsafe_allow_html=True
+                )
+        # 🔄 Set flag to show flight section
+            st.session_state["show_flights"] = True
+            
+            
+    if st.session_state["show_flights"]:
         st.subheader("✈️ Check Flight Prices")
         origin = st.text_input("📍 Enter Origin Airport Code (e.g., JFK)")
         origin_id = st.text_input("Enter Origin ID", "27537542")
         destination = st.text_input("🏙️ Enter Destination Airport Code (e.g., LAX)")
         destination_id = st.text_input("Enter Destination ID", "95673827")
         date = st.date_input("📅 Select Departure Date").strftime("%Y-%m-%d")
-
+        
         if st.button("🛫 Find Flights"):
             flights = get_flight_prices(origin, origin_id, destination, destination_id, date)
-
-            if flights:
-                if "error" in flights:
-                    st.error(flights["error"])
-                else:
-                    st.write("### Available Flights:")
-                    for flight in flights:
-                        st.write(f"🛫 **Airline:** {flight['Airline']}")
-                        st.write(f"⏰ **Departure:** {flight['Departure Time']}")
-                        st.write(f"💰 **Price:** {flight['Price']}")
-                        st.write("---")
-
             
+            if isinstance(flights, dict) and "error" in flights:
+                st.error(f"❌ {flights['error']}")
+            elif isinstance(flights, list):
+                display_flights(flights)
+                
+            else:
+                st.warning("⚠️ No flight data available.")
+    
+    
+    
+    
+   
+        
