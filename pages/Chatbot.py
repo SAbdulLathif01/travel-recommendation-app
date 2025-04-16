@@ -1,41 +1,38 @@
 import streamlit as st
 from chatbot import ask_chatbot, recognize_speech, text_to_speech
 
-# ✅ Ensure `set_page_config` is at the top
-st.set_page_config(page_title="AI Chatbot", page_icon="🤖", layout="centered")
+st.set_page_config(page_title="AI Chatbot", page_icon="🤖", layout="wide")
+st.markdown("<h1 style='text-align: center;'>🤖 AI Chatbot</h1>", unsafe_allow_html=True)
+st.markdown("<p style='text-align: center;'>Ask me anything!</p>", unsafe_allow_html=True)
 
-# Chatbot UI
-st.title("🤖 AI Chatbot")
-st.write("Ask me anything!")
+# Session state
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 
-# Chat History
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+# Clear button
+if st.button("🧹 Clear Chat", type="primary"):
+    st.session_state.chat_history = []
 
-# Display Chat History
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+# Display chat history
+for entry in st.session_state.chat_history:
+    if entry["role"] == "user":
+        st.chat_message("user").write(entry["text"])
+    else:
+        st.chat_message("assistant").write(entry["text"])
 
-# 🔹 Voice Input Button
-col1, col2 = st.columns([3, 1])  # Creates a layout with text input & mic button
+# Input layout: row with textbox + mic button
+col1, col2 = st.columns([5, 1])
 with col1:
-    user_query = st.chat_input("Type your question here...")
+    user_input = st.text_input("Type your question here...", key="input", label_visibility="collapsed")
 with col2:
-    if st.button("🎤 Speak Now"):
-        user_query = recognize_speech()  # Get voice input
-        st.write(f"🗣️ You: {user_query}")
+    if st.button("🎙️ Speak Now"):
+        user_input = recognize_speech()
+        st.session_state.input = user_input
 
-if user_query:
-    st.session_state.messages.append({"role": "user", "content": user_query})
-    
-    with st.spinner("Thinking..."):
-        chatbot_response = ask_chatbot(user_query)
-
-    st.session_state.messages.append({"role": "assistant", "content": chatbot_response})
-    
-    with st.chat_message("assistant"):
-        st.markdown(chatbot_response)
-
-    # 🔊 Speak chatbot response
-    text_to_speech(chatbot_response)
+# Process input
+if user_input:
+    st.session_state.chat_history.append({"role": "user", "text": user_input})
+    response = ask_chatbot(user_input)
+    st.session_state.chat_history.append({"role": "assistant", "text": response})
+    text_to_speech(response)
+    st.rerun()
