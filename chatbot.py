@@ -1,25 +1,39 @@
-from transformers import AutoModelForSeq2SeqLM, AutoTokenizer
+from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
 import torch
 import speech_recognition as sr
 import pyttsx3
-from gtts import gTTS
-import os
 
-MODEL_NAME = "facebook/blenderbot-400M-distill"  # Smaller, faster model
+# Load Facebook BlenderBot model
+MODEL_NAME = "facebook/blenderbot-1B-distill"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
 tokenizer = AutoTokenizer.from_pretrained(MODEL_NAME)
 model = AutoModelForSeq2SeqLM.from_pretrained(MODEL_NAME).to(device)
 
-def ask_chatbot(user_input):
-    inputs = tokenizer(user_input, return_tensors="pt").to(device)
-    output = model.generate(**inputs, max_length=100)
-    response = tokenizer.decode(output[0], skip_special_tokens=True)
-    return response
+# Global history for context-aware responses
+conversation_history = []
 
-# 🔹 Speech-to-Text (Voice Input)
+# Chatbot response with context
+def ask_chatbot(user_input):
+    global conversation_history
+    conversation_history.append(f"User: {user_input}")
+    prompt = "\n".join(conversation_history)
+
+    input_ids = tokenizer(prompt, return_tensors="pt").input_ids.to(device)
+    output_ids = model.generate(
+        input_ids,
+        max_new_tokens=150,
+        temperature=0.7,
+        repetition_penalty=1.2,
+        pad_token_id=tokenizer.eos_token_id
+    )
+
+    response = tokenizer.decode(output_ids[0], skip_special_tokens=True)
+    conversation_history.append(f"Bot: {response}")
+    return response.strip()
+
+# Speech-to-text
 def recognize_speech():
-    """Capture voice input and convert it to text."""
     recognizer = sr.Recognizer()
     with sr.Microphone() as source:
         print("🎤 Speak now...")
@@ -32,16 +46,10 @@ def recognize_speech():
         except sr.UnknownValueError:
             return "Sorry, I couldn't understand that."
         except sr.RequestError:
-            return "Error: Speech service unavailable."
+            return "Speech recognition service is unavailable."
 
-# 🔹 Text-to-Speech (Voice Output)
+# Text-to-speech
 def text_to_speech(text):
-    """Convert text response to voice output."""
     engine = pyttsx3.init()
     engine.say(text)
     engine.runAndWait()
-    
-    # OR using gTTS (Google TTS)
-    # tts = gTTS(text)
-    # tts.save("response.mp3")
-    # os.system("start response.mp3")  # Windows
