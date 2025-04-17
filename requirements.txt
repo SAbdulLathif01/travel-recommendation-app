@@ -9,3 +9,4 @@ torch
 speechrecognition
 pyttsx3
 vaderSentiment
+gtts
